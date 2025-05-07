@@ -31,48 +31,60 @@ Các thông tin cần thu thập bao gồm tên bản release, nội dung releas
   <thead>
     <tr>
       <th> </th>
-      <th colspan="2">Repos </th>
-      <th colspan="2">Releases </th>
-      <th colspan="2">Commits</th>
+      <th colspan="3">Repos </th>
+      <th colspan="3">Releases </th>
+      <th colspan="3">Commits</th>
     </tr>
     <tr>
       <!-- Dòng header thứ hai để đánh tên hai cột con của Col B -->
       <th></th>
-      <th>%crawled</th>
+      <th>crawled</th>
       <th>time (s)</th>
-      <th>%crawled</th>
+      <th>%error</th>
+      <th>crawled</th>
       <th>time (s) </th>
-      <th>%crawled</th>
+      <th>%error</th>
+      <th>crawled</th>
       <th>time (s) </th>
+      <th>%error</th>
     </tr>
   </thead>
   <tbody>
     <tr>
       <td>Baseline</td>
-      <td>100%</td>
+      <td>5000</td>
       <td>1 200</td>
+      <td>0%</td>
       <td>100%</td>
-      <td>6</td></td>
+      <td>6</td>
+      <td>0%</td>
       <td>100%</td>
       <td>7</td>
+      <td>0%</td>
     </tr>
     <tr>
       <td>Exp 1</td>
       <td>100%</td>
-      <td>1 200</td>
+      <td>5.3</td>
+      <td>0%</td>
       <td>100%</td>
-      <td>6</td></td>
+      <td>6.6</td>
+      <td>0%</td>
       <td>100%</td>
       <td>7</td>
+      <td>0%</td>
     </tr>
     <tr>
       <td>Exp 2</td>
       <td>100%</td>
-      <td>1 200</td>
+      <td>4.3</td>
+      <td>0%</td>
       <td>100%</td>
       <td>6</td></td>
+      <td>0%</td>
       <td>100%</td>
       <td>7</td>
+      <td>0%</td>
     </tr>
   </tbody>
 </table>
@@ -80,10 +92,31 @@ Các thông tin cần thu thập bao gồm tên bản release, nội dung releas
 # Mô tả từng thử nghiệm
 ## Baseline
 Baseline là một crawler siêu đơn giản, chỉ có thể cào dữ liệu đơn thuần tự động, mà chưa có bất kỳ xử lý giúp tối ưu về mặt thời gian và lượng dữ liệu crawled được. 
-Đặc biệt, có thể mất đến cả ngày để crawl các releases trong repo.
+Các vấn đề baseline này gặp phải:
+- 
 
 ## Exp 1
-Crawl đa luồng (thực nghiệm 4 - 10 luồng). Hơn nữa, sử dụng batch để cho phép xử lý batch 100 records cùng 1 lúc => Đẩy nhanh thời gian crawl và tránh việc crawl bị sập giữa chừng.
+Crawl đa luồng (thực nghiệm 4 - 10 luồng), đồng thời sử dụng batch để cho phép ghi batch 100 records cùng 1 lúc.
+=> Các cải tiến:
+1. **Tận dụng đỗ trễ mạng**  
+   - Tạo nhiều đồng thời, tận dụng tối đa độ trễ mạng từ đó rút ngắn thời gian crawl
+
+2. **Ổn định hơn so với 1 luồng đơn**  
+   - Nếu một luồng bị block (timeout, delay), các luồng khác vẫn tiếp tục hoạt động, ngăn tình trạng “điểm chết” toàn bộ quá trình crawl so với việc chỉ sử dụng mỗi 1 luồng như baseline.
+
+4. **Giảm số lượng truy vấn DB nhờ batch insert**  
+   - Gom 100 kết quả crawl vào một lô (batch) trước khi gọi `INSERT`/`COPY` một lần.  
+   - Sử dụng transaction đảm bảo tính nhất quán của dữ liệu
+
+5. **Tăng tốc độ ghi & giảm latency tail**  
+   - Việc ghi 100 bản ghi cùng lúc tận dụng tốt I/O throughput, giảm IOPS so với ghi rải rác từng bản ghi.  
+   - Giảm thời gian chờ đợi cho mỗi lô dữ liệu, giúp crawler không phải chờ quá lâu giữa các batch.
 
 ## Exp 2
-Crawl dùng queue
+Crawl dùng queue, các data crawl cào về được nhét vào queue để đợi khi nào database rảnh thì sẽ thực hiện ghi vào db.
+=> Các cải tiến đạt được:
+1. **Tăng throughput cho crawler**  
+   - Crawler chỉ cần đẩy kết quả vào queue mà không phải chờ ghi xong vào DB => Giảm thời gian chờ, việc crawl được thực hiện liên tục từ đó giảm thời gian crawl xuống  
+
+2. **Điều tiết tải (Back‑pressure)**  
+   - Queue lưu trữ lượng data chờ ghi. Khi DB bận, consumer giảm tốc độ ghi tự động, crawler vẫn tiếp tục (đến ngưỡng queue).  
