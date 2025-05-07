@@ -1,0 +1,6 @@
+{"level":"info","msg":"Starting repository crawling operation","phase":"start","time":"2025-05-07 21:01:57"}
+{"level":"info","msg":"Starting repository scraping","phase":"scraping_start","time":"2025-05-07 21:01:58"}
+{"level":"info","msg":"Starting to scrape top repositories from gitstar-ranking.com","time":"2025-05-07 21:01:58"}
+{"duration_ms":6020,"level":"info","msg":"Repository scraping completed","phase":"scraping_complete","repos_found":5000,"time":"2025-05-07 21:02:04"}
+{"level":"info","msg":"Starting database operations","phase":"database_start","time":"2025-05-07 21:02:04"}
+{"db_time_ms":599,"level":"info","msg":"Repository crawling operation completed","phase":"operation_complete","repos_found":5000,"scrape_time_ms":6020,"success_count":5000,"time":"2025-05-07 21:02:04","total_time_ms":6622}
