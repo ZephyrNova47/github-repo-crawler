@@ -11,14 +11,16 @@ func main() {
 	viperConfig := config.NewViper()
 	logConfig := config.NewLogger(viperConfig)
 	dbConfig := config.NewDatabase(viperConfig, logConfig)
+	collyConfig := config.NewColly(viperConfig, logConfig)
 
 	r := config.Bootstrap(&config.BootstrapConfig{
 		DB:     dbConfig,
 		Log:    logConfig,
 		Config: viperConfig,
+		Colly:  collyConfig,
 	})
 
-	http.ListenAndServe(":8080", r)
+	http.ListenAndServe(":8081", r)
 
 }
 

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -39,7 +40,7 @@ func GetNumRelease(repoOwner string, repoName string) int {
 
 	err := c.Visit(repoURL)
 	if err != nil {
-		// fmt.Println("Error visiting URL:", err)
+		fmt.Println("Error visiting URL:", err)
 	}
 
 	return numRelease
@@ -96,7 +97,7 @@ func GetNumCommitRelease(releaseURL string) int {
 	c := colly.NewCollector()
 
 	c.OnRequest(func(r *colly.Request) {
-		// log.Debug("Visiting release URL: ", r.URL)
+		log.Debug("Visiting release URL: ", r.URL)
 	})
 
 	numCommits := 0

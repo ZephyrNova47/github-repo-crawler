@@ -21,14 +21,16 @@ type ReleaseController struct {
 	log            *logrus.Logger
 	db             *gorm.DB
 	releaseUsecase *usecase.ReleaseUsecase
+	releaseScrape  *scrape.ReleaseScrape
 }
 
 func NewReleaseController(log *logrus.Logger, db *gorm.DB,
-	releaseUsecase *usecase.ReleaseUsecase) *ReleaseController {
+	releaseUsecase *usecase.ReleaseUsecase, releaseScrape *scrape.ReleaseScrape) *ReleaseController {
 	return &ReleaseController{
 		log:            log,
 		db:             db,
 		releaseUsecase: releaseUsecase,
+		releaseScrape:  releaseScrape,
 	}
 }
 
@@ -129,7 +131,7 @@ func (c *ReleaseController) CrawlAllReleases(w http.ResponseWriter, r *http.Requ
 
 		// Scrape releases (measure scraping time)
 		scrapeStartTime := time.Now()
-		releases := scrape.CrawlReleases(repoOwner, repoName)
+		releases := c.releaseScrape.CrawlReleases(repoOwner, repoName)
 		scrapeTime := time.Since(scrapeStartTime)
 		totalScrapeTime += scrapeTime
 
@@ -144,12 +146,15 @@ func (c *ReleaseController) CrawlAllReleases(w http.ResponseWriter, r *http.Requ
 			"phase":          "repo_scraping_complete",
 		}).Info("Repository releases scraped")
 
-		// Save releases to database
-		repoSuccessCount := 0
-		repoErrorCount := 0
+		// Skip if no releases were found
+		if len(releases) == 0 {
+			continue
+		}
+
+		// Save releases to database using batch insert
 		dbStartTime := time.Now()
 
-		// Batch prepare the release requests
+		// Prepare the release requests as a batch
 		releaseRequests := make([]*model.CreateReleaseRequest, 0, len(releases))
 		for tag, content := range releases {
 			releaseRequests = append(releaseRequests, &model.CreateReleaseRequest{
@@ -159,24 +164,20 @@ func (c *ReleaseController) CrawlAllReleases(w http.ResponseWriter, r *http.Requ
 			})
 		}
 
-		// Process each release
-		for _, request := range releaseRequests {
-			releaseResponse, err := c.releaseUsecase.Create(r.Context(), request)
-			if err != nil {
-				c.log.WithFields(logrus.Fields{
-					"repo":  repoName,
-					"tag":   request.TagName,
-					"error": err.Error(),
-				}).Error("Failed to save release")
-				repoErrorCount++
-				errorCount++
-				continue
-			}
-
-			releaseResponses = append(releaseResponses, releaseResponse)
-			repoSuccessCount++
-			successCount++
+		// Batch create all releases for this repository
+		batchResponses, err := c.releaseUsecase.BatchCreate(r.Context(), releaseRequests)
+		if err != nil {
+			c.log.WithFields(logrus.Fields{
+				"repo":  repoName,
+				"error": err.Error(),
+			}).Error("Failed to batch save releases")
+			errorCount += len(releaseRequests)
+			continue
 		}
+
+		// Add successful responses to the main response list
+		releaseResponses = append(releaseResponses, batchResponses...)
+		successCount += len(batchResponses)
 
 		// Calculate database time
 		dbTime := time.Since(dbStartTime)
@@ -190,8 +191,7 @@ func (c *ReleaseController) CrawlAllReleases(w http.ResponseWriter, r *http.Requ
 			"scrape_time_ms": scrapeTime.Milliseconds(),
 			"db_time_ms":     dbTime.Milliseconds(),
 			"total_time_ms":  repoTotalTime.Milliseconds(),
-			"success_count":  repoSuccessCount,
-			"error_count":    repoErrorCount,
+			"success_count":  len(batchResponses),
 			"phase":          "repo_processing_complete",
 		}).Info("Repository processing completed")
 	}

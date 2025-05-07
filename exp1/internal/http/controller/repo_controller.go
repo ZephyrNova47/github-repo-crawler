@@ -8,7 +8,6 @@ import (
 	"crawler/baseline/internal/scrape"
 	"crawler/baseline/internal/usecase"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -22,14 +21,16 @@ type RepoController struct {
 	log         *logrus.Logger
 	db          *gorm.DB
 	repoUsecase *usecase.RepoUsecase
+	repoScrape  *scrape.RepoScrape
 }
 
 func NewRepoController(log *logrus.Logger, db *gorm.DB,
-	repoUsecase *usecase.RepoUsecase) *RepoController {
+	repoUsecase *usecase.RepoUsecase, repoScrape *scrape.RepoScrape) *RepoController {
 	return &RepoController{
 		log:         log,
 		db:          db,
 		repoUsecase: repoUsecase,
+		repoScrape:  repoScrape,
 	}
 }
 
@@ -99,15 +100,11 @@ func (c *RepoController) CrawlAllRepos(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	c.log.WithField("phase", "start").Info("Starting repository crawling operation")
 
-	// Metrics tracking
-	successCount := 0
-	errorCount := 0
-
 	// Scraping phase
 	scrapeStartTime := time.Now()
 	c.log.WithField("phase", "scraping_start").Info("Starting repository scraping")
 
-	repos, err := scrape.CrawlAllRepos()
+	repos, err := c.repoScrape.CrawlAllRepos()
 	if err != nil {
 		c.log.WithError(err).Error("Error crawling repositories")
 		http.Error(w, "Failed to crawl repositories", http.StatusInternalServerError)
@@ -121,47 +118,28 @@ func (c *RepoController) CrawlAllRepos(w http.ResponseWriter, r *http.Request) {
 		"phase":       "scraping_complete",
 	}).Info("Repository scraping completed")
 
-	// Database operations phase
 	dbStartTime := time.Now()
 	c.log.WithField("phase", "database_start").Info("Starting database operations")
 
-	responseData := make([]*model.RepoResponse, 0, len(repos))
-	for i, repo := range repos {
-		c.log.WithFields(logrus.Fields{
-			"progress": fmt.Sprintf("%d/%d", i+1, len(repos)),
-			"repo":     fmt.Sprintf("%s/%s", repo.UserName, repo.RepoName),
-		}).Debug("Processing repository")
-
-		repoResponse, err := c.repoUsecase.Create(r.Context(), repo)
-		if err != nil {
-			c.log.WithError(err).WithField("repo", fmt.Sprintf("%s/%s", repo.UserName, repo.RepoName)).Error("Failed to create repository")
-			errorCount++
-			continue
-		}
-
-		responseData = append(responseData, repoResponse)
-		successCount++
-		c.log.WithFields(logrus.Fields{
-			"id":   repoResponse.ID,
-			"repo": fmt.Sprintf("%s/%s", repoResponse.UserName, repoResponse.RepoName),
-		}).Debug("Repository saved")
+	responseData, err := c.repoUsecase.BatchCreate(r.Context(), repos)
+	if err != nil {
+		c.log.WithError(err).Error("Failed to create repositories")
+		http.Error(w, "Failed to save repositories", http.StatusInternalServerError)
+		return
 	}
 
 	dbTime := time.Since(dbStartTime)
 	totalTime := time.Since(startTime)
 
-	// Log completion
 	c.log.WithFields(logrus.Fields{
 		"scrape_time_ms": scrapeTime.Milliseconds(),
 		"db_time_ms":     dbTime.Milliseconds(),
 		"total_time_ms":  totalTime.Milliseconds(),
 		"repos_found":    len(repos),
-		"success_count":  successCount,
-		"error_count":    errorCount,
+		"success_count":  len(responseData),
 		"phase":          "operation_complete",
 	}).Info("Repository crawling operation completed")
 
-	// Send response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(model.WebResponse[[]*model.RepoResponse]{
 		Data: responseData,

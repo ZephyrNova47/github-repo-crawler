@@ -29,7 +29,7 @@ func CrawlRelease(repoOwner string, repoName string, releaseTag string) string {
 	c := colly.NewCollector()
 	// log.Info("Starting to scrape release: ", releaseURL)
 	c.OnRequest(func(req *colly.Request) {
-		log.Info("visiting: ", releaseURL)
+		// log.Info("visiting: ", releaseURL)
 	})
 	contentData := ""
 	c.OnHTML("div.Box-body", func(e *colly.HTMLElement) {
